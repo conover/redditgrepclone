@@ -1,0 +1,5 @@
+Algorithm:
+- Compare specified timestamp with current line
+- If it's greated, seek back half bounding and re-compare
+- If it's lesser, seek forward half bounding and re-compare
+- If they match, scan foward to find first instance
