@@ -69,54 +69,53 @@ class RedditLogFile(object):
 		# Find the start log offset
 		self.file.seek(0)
 		fence = self.file_size
-		upper_bound, lower_bound = None, None
+		lower_bound = None
 		while True:
 			current_offset, current_ts = self._date_at_offset()
 
 			fence = fence / 2
-			print 'Fence: ' + str(fence) + ' ' + str(start_ts) + ' ' + str(current_ts)
+			
 			if current_ts < start_ts: # Not there yet. Jump foward
 				self.file.seek(current_offset + fence)
 				lower_bound = current_offset
 			elif current_ts > start_ts: # Passed it. Jump back
 				self.file.seek(current_offset - fence)
-				upper_bound = current_offset
 			elif start_ts == current_ts:
-				# Scan backward to find the first of potentially many
-				# logs with the same timestamp
+				# Found a log that matches the starting timestamp. However,
+				# it might not be the first log that matches. It could be 
+				# in the middle of the long list of logs that match. 
+				# We need to find the border between the logs that don't match
+				# and the logs that do
 				
-				# Lower bound is no good if the last fence jump
-				#lower_bound = 0
 				scan_lower = lower_bound
 				scan_upper = current_offset
-				while True:
-					#time.sleep(2)
-					look_offset, look_ts = self._date_at_offset()
-					print ' ' + str(look_ts) + ' ' + str(current_ts)
-					if look_ts == current_ts:
-						check_offset, check_ts = self._date_at_offset(look_offset - 1)
-						print ' ' + str(check_ts)
-						if check_ts != current_ts:
-							# Found the border
+				while current_offset > 0:
+					current_offset, current_ts = self._date_at_offset()
+					
+					if current_ts == start_ts:
+						# Examine the previous log	
+						check_offset, check_ts = self._date_at_offset(current_offset - 1)
+						if check_ts != start_ts:
+							# The current log matches but the next log does not.
+							# This is the border
 							break
 						else:
-							scan_upper = look_offset
-							print 'Previous still matches, go back farther %d' % ((look_offset - scan_lower) / 2)
-							# Not far enough
-							self.file.seek(look_offset - ((look_offset - scan_lower) / 2))
+							# Two consecutive logs that match. Jump back
+							scan_upper = current_offset
+							self.file.seek(current_offset - ((current_offset - scan_lower) / 2))
 							
 					else:
-						self.file.readline() # Adavanced to next log
+						# Examine the next log
+						self.file.readline() 
 						check_offset, check_ts = self._date_at_offset()
-						print ' ' + str(check_ts)
-						if check_ts == current_ts:
-							# Found the border
+						if check_ts == start_ts:
+							# The current log doesn't match but the next log does.
+							# This is the border
 							break
 						else:
-							scan_lower = look_offset
-							print 'Next does not match too far, go foward %d' % ((scan_upper - look_offset) / 2)
+							scan_lower = current_offset
 							# Went back too far
-							self.file.seek(look_offset + ((scan_upper - look_offset) / 2))
+							self.file.seek(current_offset + ((scan_upper - current_offset) / 2))
 				break
 			elif fence == 1 and duration:
 				# Closest we are going to get for range
