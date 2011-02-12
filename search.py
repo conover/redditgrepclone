@@ -113,8 +113,8 @@ class RedditLogFile(object):
 							# This is the border
 							break
 						else:
+							# Two consecutive logs that don't match. Jump foward
 							scan_lower = current_offset
-							# Went back too far
 							self.file.seek(current_offset + ((scan_upper - current_offset) / 2))
 				break
 			elif fence == 1 and duration:
@@ -135,29 +135,41 @@ class RedditLogFile(object):
 		if not duration:
 			end_offset = last_offset
 		else:
-			# Find the end log offset
+			# Find the end log offset. This is similar to finding the start
+			# offset. I'll omit the verbose comments here.
+			
 			fence = self.file_size - start_log_offset # End log must be past start log
+			upper_bound = self.file_size
 			while True:
 				current_offset, current_ts = self._date_at_offset()
-				
 				fence = int(fence / 2)
-				#print 'Bounding: ' + str(bounding) + ' ' + str(start_ts) + ' ' + str(line_ts)
-				if end_ts > current_ts: # Passed it	
+				if current_ts > end_ts:
 					file.seek(current_offset - fence)
-				elif end_ts < current_ts: # Haven't reached it yet
+					upper_bound = current_offset
+				elif end_ts < current_ts: 
 					file.seek(current_offset +fence)
 				elif end_ts == current_ts:
-					# Scan forward to make sure we have the
-					# last log of this timestamp
-					while current_offset != last_offset:
-						self.file.readline()
-						next_offset, next_ts = self._date_at_offset()
-						if current_ts != next_ts:
-							break
+					
+					scan_lower = current_offset
+					scan_upper = upper_bound
+					while current_offset < last_offset:
+						current_offset, current_ts = self._date_at_line()
+						
+						if current_ts == end_ts:
+							self.file.readline()
+							check_offset, check_ts = self._date_at_line()
+							if check_ts != end_ts:
+								break
+							else:
+								scan_lower = check_offset
+								self.file.seek(current_offset + ((scan_upper - current_offset) / 2))
 						else:
-							current_offset = next_offset
-							current_ts = next_ts
-					end_offset = current_ts
+							check_offset, check_ts = self._date_at_line(current_ts -1)
+							if check_ts == end_ts:
+								break
+							else:
+								scan_upper = check_offset
+								self.file.seek(current_offset - ((current_offset - scan_lower) / 2))
 					break
 				elif fence == 1:
 					end_offset = self.file_size
@@ -192,7 +204,7 @@ class RedditLogFile(object):
 		
 	def _date_from_line(self, line):
 		'''
-			Parse date from line. Expects Reddit log format.
+			Parse date from line.
 			Returns datetime
 		'''
 		fixed_line = re.sub('\s+', ' ', line, 3)
