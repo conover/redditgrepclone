@@ -31,21 +31,19 @@ class RedditGrepClone(object):
 			the specified timestamps.
 			@return generator of logs
 		'''
-		# Specific timestamp
+		# Logs with specific timestamp
 		if abs_end_ts is None: 
 			abs_end_ts = abs_start_ts
 		
-		# First and last log timestamps
-		first_ts = self._date_at_offset()
+		first_ts = self._date_at_offset() # First timestamp in the file
 		self.file.seek(self.file_size)
-		last_ts = self._date_at_offset()
+		last_ts = self._date_at_offset() # Last timestamp in the file
 		last_offset = self.file.tell()
-		self.file.seek(0)
 		
 		searches = [] # Set of timestamp ranges we need to search for. In the form of (start_ts, end_ts)
 		offsets = [] # Set of offset ranges need to output
 		
-		# Possible midnight roll overs.
+		# Possible midnight roll overs. Invalid ranges will be discareded later
 		one_day = timedelta(days = 1)
 		if abs_start_ts > abs_end_ts: # Ex: 23:50:51-0:00:1
 			searches.append((abs_start_ts - one_day, abs_end_ts))
@@ -56,22 +54,20 @@ class RedditGrepClone(object):
 			searches.append((abs_end_ts - one_day, abs_end_ts - one_day))
 		
 		for start_ts, end_ts in searches:
-			
 			if end_ts < first_ts or start_ts > last_ts:
-				# No logs will be found with these conditions
+				# Discard invalid timestamp ranges
 				continue
 			else:
 				start_offset, end_offset = None, None
 			
-				upper_bound = self.file_size - 1
+				upper_bound = self.file_size
 				lower_bound = 0
 				prev_seek_offset = -1
 				while True:
 					seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
 					if prev_seek_offset == seek_offset:
 						if start_ts == end_ts:
-							# Specific timestamp not found
-							return
+							return # Specific timestamp not found
 						else:
 							# It's possible we landed on the wrong side of 
 							# the starting timestamp
@@ -157,7 +153,7 @@ class RedditGrepClone(object):
 			reads += 1
 			
 		# Timestamp parts could be delimited by more than one space
-		fixed_line = re.sub('\s+', self.file.readline(), l, 3)  
+		fixed_line = re.sub('\s+', ' ', self.file.readline(), 3)  
 		month, day, timestamp, log = fixed_line.split(' ', 3)
 		hour, minute, second = timestamp.split(':')
 		
