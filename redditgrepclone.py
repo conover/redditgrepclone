@@ -45,15 +45,9 @@ class RedditGrepClone(object):
 		searches = [] # Set of timestamp ranges we need to search for. In the form of (start_ts, end_ts)
 		offsets = [] # Set of offset ranges need to output
 		
-		# Handle all possible rollovers
-		# 23:59:00-00:00:01
-		# 23:59:50-23:59:55
-		# 00:00:11-00:00:15
-		# Don't even bother trying to figure out every little special
-		# case. The binary search is so fast, doing one or two extra
-		# isn't really that significant in this case
+		# Possible midnight roll overs. Assume there will only be one
 		one_day = timedelta(days = 1)
-		if abs_start_ts > abs_end_ts:
+		if abs_start_ts > abs_end_ts: # Ex: 23:50:51-0:00:1
 			searches.append((abs_start_ts - one_day, abs_end_ts))
 			searches.append((abs_start_ts, abs_end_ts + one_day))
 		else:
@@ -62,65 +56,70 @@ class RedditGrepClone(object):
 			searches.append((abs_end_ts - one_day, abs_end_ts - one_day))
 		
 		for start_ts, end_ts in searches:
-			start_offset, end_offset = None, None
 			
-			upper_bound = self.file_size
-			lower_bound = 0
-			prev_seek_offset = -1
-			while True:
-				seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
-				if prev_seek_offset == seek_offset:
-					break
-				else:
-					prev_seek_offset = seek_offset
-				self.file.seek(seek_offset)
-				seek_ts = self._date_at_offset()
-				if seek_ts > start_ts: # Passed it
-					upper_bound = seek_offset
-				elif seek_ts < start_ts: # Before it
-					lower_bound = seek_offset
-				else:
-					self.file.seek(self.file.tell() - 1)
-					prev_ts = self._date_at_offset()
-					if prev_ts == start_ts:
-						upper_bound = seek_offset
-					else:
-						self.file.seek(seek_offset)
-						self._date_at_offset()
-						start_offset = self.file.tell()
-						break
-			
-			upper_bound = self.file_size
-			if start_offset is None:
-				lower_bound = 0
+			if end_ts < first_ts or start_ts > last_ts:
+				# Ranges are such that no logs can be returned
+				continue
 			else:
-				lower_bound = start_offset
-				
-			prev_seek_offset = -1
+				start_offset, end_offset = None, None
 			
-			while True:
-				seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
-				if prev_seek_offset == seek_offset:
-					break
-				else:
-					prev_seek_offset = seek_offset
-				self.file.seek(seek_offset)
-				seek_ts = self._date_at_offset()
-				if seek_ts > end_ts: # Passed it
-					upper_bound = seek_offset
-				elif seek_ts < end_ts: # Before it
-					lower_bound = seek_offset
-				else:
-					self.file.readline()
-					next_ts = self._date_at_offset()
-					if next_ts == end_ts:
+				upper_bound = self.file_size
+				lower_bound = 0
+				prev_seek_offset = -1
+				while True:
+					seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
+					if prev_seek_offset == seek_offset:
+						break
+					else:
+						prev_seek_offset = seek_offset
+					self.file.seek(seek_offset)
+					seek_ts = self._date_at_offset()
+					if seek_ts > start_ts: # Passed it
+						upper_bound = seek_offset
+					elif seek_ts < start_ts: # Before it
 						lower_bound = seek_offset
 					else:
-						self.file.seek(seek_offset)
-						self._date_at_offset()
-						end_offset = self.file.tell()
+						self.file.seek(self.file.tell() - 1)
+						prev_ts = self._date_at_offset()
+						if prev_ts == start_ts:
+							upper_bound = seek_offset
+						else:
+							self.file.seek(seek_offset)
+							self._date_at_offset()
+							start_offset = self.file.tell()
+							break
+			
+				upper_bound = self.file_size
+				if start_offset is None:
+					lower_bound = 0
+				else:
+					lower_bound = start_offset
+				
+				prev_seek_offset = -1
+			
+				while True:
+					seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
+					if prev_seek_offset == seek_offset:
 						break
-			offsets.append((start_offset, end_offset))
+					else:
+						prev_seek_offset = seek_offset
+					self.file.seek(seek_offset)
+					seek_ts = self._date_at_offset()
+					if seek_ts > end_ts: # Passed it
+						upper_bound = seek_offset
+					elif seek_ts < end_ts: # Before it
+						lower_bound = seek_offset
+					else:
+						self.file.readline()
+						next_ts = self._date_at_offset()
+						if next_ts == end_ts:
+							lower_bound = seek_offset
+						else:
+							self.file.seek(seek_offset)
+							self._date_at_offset()
+							end_offset = self.file.tell()
+							break
+				offsets.append((start_offset, end_offset))
 			
 		for start_offset, end_offset in offsets:
 			self.file.seek(start_offset)
