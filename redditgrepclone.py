@@ -32,8 +32,10 @@ class RedditGrepClone(object):
 			@return generator of logs
 		'''
 		# Logs with specific timestamp
+		specific = False
 		if abs_end_ts is None: 
 			abs_end_ts = abs_start_ts
+			specific = True
 		
 		first_ts = self._date_at_offset() # First timestamp in the file
 		self.file.seek(self.file_size)
@@ -58,74 +60,12 @@ class RedditGrepClone(object):
 				# Discard invalid timestamp ranges
 				continue
 			else:
-				start_offset, end_offset = None, None
-			
-				upper_bound = self.file_size
-				lower_bound = 0
-				prev_seek_offset = -1
-				while True:
-					seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
-					if prev_seek_offset == seek_offset:
-						if start_ts == end_ts:
-							return # Specific timestamp not found
-						else:
-							# It's possible we landed on the wrong side of 
-							# the starting timestamp
-							next_ts = self._date_at_offset()
-							if next_ts < start_ts:
-								self.file.readline()
-							start_offset = self.file.tell()
-						break
-					else:
-						prev_seek_offset = seek_offset
-					self.file.seek(seek_offset)
-					seek_ts = self._date_at_offset()
-					if seek_ts > start_ts: # Passed it
-						upper_bound = self.file.tell()
-					elif seek_ts < start_ts: # Before it
-						lower_bound = self.file.tell()
-					else:
-						self.file.seek(self.file.tell() - 1)
-						prev_ts = self._date_at_offset()
-						if prev_ts == start_ts:
-							upper_bound = seek_offset
-						else:
-							self.file.seek(seek_offset)
-							self._date_at_offset()
-							start_offset = self.file.tell()
-							break
-			
-				upper_bound = self.file_size
-				if start_offset is None:
-					lower_bound = 0
-				else:
-					lower_bound = start_offset
 				
-				prev_seek_offset = -1
-			
-				while True:
-					seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
-					if prev_seek_offset == seek_offset:
-						end_offset = self.file.tell()
-						break
-					else:
-						prev_seek_offset = seek_offset
-					self.file.seek(seek_offset)
-					seek_ts = self._date_at_offset()
-					if seek_ts > end_ts: # Passed it
-						upper_bound = self.file.tell()
-					elif seek_ts < end_ts: # Before it
-						lower_bound = self.file.tell()
-					else:
-						self.file.readline()
-						next_ts = self._date_at_offset()
-						if next_ts == end_ts:
-							lower_bound = self.file.tell()
-						else:
-							self.file.seek(seek_offset)
-							self._date_at_offset()
-							end_offset = self.file.tell()
-							break
+				start_offset = self._find_offset(start_ts, 0, self.file_size, mode = 'first', specific = specific)
+				
+				if start_offset is None and specific: continue
+				
+				end_offset = self._find_offset(end_ts, start_offset, self.file_size, mode = 'last', specific = specific)
 				
 				offsets.append((start_offset, end_offset))
 			
@@ -133,12 +73,72 @@ class RedditGrepClone(object):
 			self.file.seek(start_offset)
 			while self.file.tell() <= end_offset + 1:
 				yield self.file.readline()
-		
+	
+	def _find_offset(self, target_ts, lower_bound, upper_bound, mode = 'first', specific = False):
+		prev_seek_offset = -1
+		while True:
+			seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
+			
+			if prev_seek_offset == seek_offset:
+				# If this happens, we've oscillated back and forth
+				# between two different positions incidicating this
+				# is as close as we can get
+				if specific:
+					# Specific timestamp not found
+					return
+				else:
+					# It's possible we oscillated to the wrong side of the
+					# timestamp we are looking for
+					if mode == 'first':
+						next_ts = self._date_at_offset()
+						if next_ts < target_ts:
+							self.file.readline()
+					elif mode == 'last':
+						prev_ts = self._date_at_offset()
+						if prev_ts > target_ts:
+							self.file.seek(self.file.tell() - 1)
+							self._date_at_offset()
+					return self.file.tell()
+			else:
+				prev_seek_offset = seek_offset
+			
+			# Move the midpoint and check the date	
+			self.file.seek(seek_offset)
+			seek_ts = self._date_at_offset()
+			
+			if seek_ts > target_ts: # Passed it
+				upper_bound = seek_offset
+			elif seek_ts < target_ts: # Before it
+				lower_bound = seek_offset
+			else:
+				# Make sure this is the first or last log in a list of potentially
+				# many logs with the same timestamp
+				if mode == 'first':
+					self.file.seek(self.file.tell() - 1)
+					prev_ts = self._date_at_offset()
+					if prev_ts == target_ts:
+						upper_bound = seek_offset
+					else:
+						self.file.seek(seek_offset)
+						self._date_at_offset()
+						return self.file.tell()
+				elif mode == 'last':
+					self.file.readline()
+					next_ts = self._date_at_offset()
+					if next_ts == end_ts:
+						lower_bound = seek_offset
+					else:
+						self.file.seek(seek_offset)
+						self._date_at_offset()
+						return self.file.tell()
+						
+	
 	def _date_at_offset(self):
 		'''
 			Backtrack to find the beginning of the current line and parses
 			timestamp. File cursor will be moved to the beginning of the line.
-			@return datetime of the log at current file offset
+			
+			Returns a datetime object of the current line log's timestamp.
 		'''
 		
 		start_offset, reads, seek_to, line = self.file.tell(), 0, None, []
@@ -148,7 +148,7 @@ class RedditGrepClone(object):
 			if seek_to == 0: break # beginning of file
 			char = self.file.read(1)
 			line.append(char)
-			if char == '\n' and reads > 0:
+			if char == '\n' and reads > 0: # Might have landed on line break
 				break
 			reads += 1
 			
