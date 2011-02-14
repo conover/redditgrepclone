@@ -1,6 +1,6 @@
-import os, os.path, sys
+import os, os.path, sys, types, re, time
 from datetime import datetime
-from daettime import timedelta
+from datetime import timedelta
 
 MONTH_MAP	= {	'jan':1,
 			'feb':2,
@@ -14,138 +14,172 @@ MONTH_MAP	= {	'jan':1,
 			'oct':10,
 			'nov':11,
 			'dec':12}
-TODAY = datetime.today()
 
-class RedditLogSearcher(object):
+TODAY = datetime(2011,2,10)
+START_OF_TODAY = datetime(TODAY.year, TODAY.month, TODAY.day, 0, 0, 0)
+END_OF_TODAY = datetime(TODAY.year, TODAY.month, TODAY.day, 23, 59, 59)
+
+class RedditLogFinder(object):
 	
 	def __init__(self, filename):
 		self.file = open(filename, 'rb')
 		self.file_size = os.path.getsize(filename)
 		
-	def search(self, start_ts, end_ts):
+	def find(self, abs_start_ts, abs_end_ts):
 		'''
 			Utilize binary search to find the logs matching
 			the specified timestamps.
 			@return generator of logs
 		'''
-		start_offset, end_offset = None, None
+		# Specific timestamp
+		if abs_end_ts is None: abs_end_ts = abs_start_ts
 		
 		# First and last log timestamps
 		first_ts = self._date_at_offset()
-		self.file.seek(self.file_size)
+		self.file.seek(self.file_size - 2)
 		last_ts = self._date_at_offset()
 		last_offset = self.file.tell()
 		self.file.seek(0)
 		
-		# Day rollovers 
-		if first_ts < TODAY and start_ts.hour > end_ts.hour:
-			# If the rollover is at the beginning of the file
-			# and input is something like 23:59-0:3:10.
-			start_ts = start_ts - timedelta(days = 1)
-		if last_ts > TODAY and start_ts.hour > end_ts.hour:
-			# If the rollover is at the end of the file
-			# and input is something like 23:59-0:3:10
-			end_ts = end_ts + timedelta(days = 1)
+		searches = [] # Set of timestamp ranges we need to search for. In the form of (start_ts, end_ts)
+		offsets = [] # Set of offset ranges need to output
 		
-		# Special cases
-		if end_ts is not None and first_ts > end_ts:
-			return
-		if start_ts > last_ts:
-			return
+		# Handle all possible rollovers
+		# 23:59:00-00:00:01
+		# 23:59:50-23:59:55
+		# 00:00:11-00:00:15
+		# Don't even bother trying to figure out every little special
+		# case. The binary search is so fast, doing one or two extra
+		# isn't really that significant in this case
+		one_day = timedelta(days = 1)
+		if abs_start_ts > abs_end_ts:
+			searches.append((abs_start_ts - one_day, abs_end_ts))
+			searches.append((abs_start_ts, abs_end_ts + one_day))
+		else:
+			searches.append((abs_start_ts, abs_end_ts))
+			searches.append((abs_start_ts + one_day, abs_end_ts + one_day))
+			searches.append((abs_end_ts - one_day, abs_end_ts - one_day))
 		
-		# Find a log that matches start timestamp
-		lower_bound = 0
-		upper_bound = self.file_size
-		while True:
-			if upper_bound == lower_bound:
-				if end_ts is not None:
-					# Closest without going over
-					start_offset = self.file.tell()
-				else:
-					return
-			else:
-				seek_offset = (upper_bound - lower_bound) / 2
-				self.file.seek(seek_offset)
-				seek_ts = self._date_at_offset()
-				if start_ts == seek_ts:
-					# Find the first log in a list of logs
-					# with the same timestamp
-					upper_bound = seek_offset
-					while True:
-						seek_offset = (upper_bound - lower_bound) / 2
-						if seek_offset == 0:
-							start_offset = 0
-							break
-						self.file.seek(seek_offset)
-						seek_ts = self._date_at_offset()
-						if start_ts == seek_ts:
-							self.file.seek(seek_to - 1)
-							prev_ts = self._date_at_offset()
-							if start_ts != prev_ts:
-								start_offset = seek_offset
-								break
-							else:
-								upper_bound = seek_offset
-						else:
-							self.file.readline()
-							next_ts = self._date_at_offset()
-							if start_ts == next_ts:
-								start_offset = seek_offset
-								break
-							else:
-								lower_bound = seek_offset
-					break
-				elif start_ts > seek_ts: # Later
-					upper_bound = seek_offset
-				elif start_ts < seeked_ts: # Before
-					lower_bound = seek_ts
-		if end_ts is None:
-			end_ts = start_ts
-		# Find a log that matches the end timetamp
-		lower_bound = start_offset
-		uppder_bound = self.file_size
-		while True:
-			if upper_bound == lower_bound:
-				end_offset = self.file.tell()
-			else:
-				seek_offset = (upper_bound - lower_bound) / 2
-				self.file.seek(seek_offset)
-				seek_ts = self._date_at_offset()
-				if end_ts == seek_ts:
-					# Find the last log in a list of logs
-					# with the same timestamp
-					lower_bound = seek_offset
-					while True:
-						seek_offset = (upper_bound - lower_bound) / 2
-						self.file.seek(seek_offset)
-						if seek_offset == last_offset:
-							end_offset = seek_offset
-							break
-						seek_ts = self._date_at_offset()
-						if end_ts == seek_ts:
-							self.file.readline()
-							next_ts = self._date_at_offset()
-							if end_ts != next_ts:
-								end_offset = seek_offset
-								break
-							else:
-								lower_bound = seek_offset
-						else:
-							self.file.seek(seek_offset - 1)
-							prev_ts = self._date_at_offset()
-							if end_ts == prev_ts:
-								end_offset = seek_offset
-							else:
-								upper_bound = seek_offset
-					break
-				elif end_ts > seek_ts: # Later
-					upper_bound = seek_offset
-				elif end_ts < seek_ts: # Before
-					lower_bound = seek_offset
-		self.file.seek(start_offset)
-		while self.file.tell() <= self.end_offset:
-			yield self.file.readline()
+		for start_ts, end_ts in searches:
+			start_offset, end_offset = None, None
 			
+			upper_bound = self.file_size
+			lower_bound = 0
+			prev_seek_offset = -1
+			i = 0
+			print '_______________'
+			while i < 10:
+				i += 1
+				time.sleep(.5)
+				seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
+				print str(upper_bound) + ' ' + str(lower_bound) + ' ' + str(seek_offset)
+				if prev_seek_offset == seek_offset:
+					break
+				else:
+					prev_seek_offset = seek_offset
+				self.file.seek(seek_offset)
+				seek_ts = self._date_at_offset()
+				print str(start_ts) + ' ' + str(seek_ts)
+				if seek_ts > start_ts: # Passed it
+					print 'Passed it'
+					upper_bound = seek_offset
+				elif seek_ts < start_ts: # Before it
+					print 'Before it'
+					lower_bound = seek_offset
+				else:
+					print 'Found one'
+					upper_bound = seek_offset
+					prev_seek_offset = -1
+					j = 0
+					while j < 10:
+						j += 1
+						time.sleep(.5)
+						seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
+						print str(upper_bound) + ' ' + str(lower_bound) + ' ' + str(seek_offset)
+						self.file.seek(seek_offset)
+						seek_ts = self._date_at_offset()
+						if seek_ts == start_ts:
+							self.file.seek(self.file.tell() - 1)
+							prev_ts = self._date_at_offset()
+							if prev_ts != start_ts:
+								print 'Found first 1'
+								self.file.seek(seek_offset)
+								self._date_at_offset()
+								start_offset = self.file.tell()
+								print self.file.readline()
+								break
+							else:
+								upper_bound = seek_offset
+						else:
+							self.file.readline()
+							next_ts = self._date_at_offset()
+							if next_ts == start_ts:
+								print 'Found first 2'
+								start_offset = self.file.tell()
+								print self.file.readline()
+								break
+							else:
+								lower_bound = seek_offset	
+					break
+			upper_bound = self.file_size
+			if start_offset is None:
+				lower_bound = 0
+			else:
+				lower_bound = start_offset
+				
+			prev_seek_offset = -1
+			i = 0
+			print 'XXXXXXXXXXXXXXXXXXXX'
+			while i < 20:
+				i += 1
+				time.sleep(.5)
+				seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
+				print str(upper_bound) + ' ' + str(lower_bound) + ' ' + str(seek_offset)
+				if prev_seek_offset == seek_offset:
+					print 'Prev seek fault'
+					break
+				else:
+					prev_seek_offset = seek_offset
+				self.file.seek(seek_offset)
+				seek_ts = self._date_at_offset()
+				print str(start_ts) + ' ' + str(seek_ts)
+				if seek_ts > end_ts: # Passed it
+					print 'Passed it'
+					upper_bound = seek_offset
+				elif seek_ts < end_ts: # Before it
+					print 'Before it'
+					lower_bound = seek_offset
+				else:
+					lower_bound = seek_offset
+					j = 0
+					while j < 10:
+						j += 1
+						time.sleep(.5)
+						seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
+						print str(upper_bound) + ' ' + str(lower_bound) + ' ' + str(seek_offset)
+						self.file.seek(seek_offset)
+						seek_ts = self._date_at_offset()
+						if seek_ts == end_ts:
+							self.file.readline()
+							next_ts = self._date_at_offset()
+							if next_ts != end_ts:
+								print 'Found last 1'
+								self.file.seek(seek_offset)
+								self._date_at_offset()
+								print self.file.readline()
+								break
+							else:
+								lower_bound = seek_offset
+						else:
+							self.file.seek(self.file.tell() - 1)
+							prev_ts = self._date_at_offset()
+							if prev_ts == end_ts:
+								print 'Found last 2'
+								print self.file.readline()
+								break
+							else:
+								upper_bound = seek_offset
+					break
 	def _date_at_offset(self):
 		'''
 			Backtrack to find the beginning of the current line and parses
@@ -159,17 +193,18 @@ class RedditLogSearcher(object):
 			self.file.seek(seek_to)
 			if seek_to == 0: break # beginning of file
 			char = self.file.read(1)
-			if (char == '\n' or char == '\r') and reads > 0: break
+			if char == '\n' and reads > 0: break
 			reads += 1
 			
 		# Timestamp parts could be delimited by more than one space
-		fixed_line = re.sub('\s+', ' ', self.file.readline(), 3)  
+		line = self.file.readline()
+		fixed_line = re.sub('\s+', ' ', line, 3)  
 		month, day, timestamp, log = fixed_line.split(' ', 3)
 		hour, minute, second = timestamp.split(':')
 		
 		# readline() moved the cursor to end of the line, move it back
 		# to the beginning
-		self.file.seek(seek_to)
+		self.file.seek(seek_to + 1)
 		
 		return datetime(TODAY.year, MONTH_MAP[month.lower()], int(day), int(hour), int(minute), int(second))
 
@@ -177,8 +212,8 @@ def parse_timestamp(timestamp):
 	assert isinstance(timestamp,types.StringType)
 	
 	# Any possible arguement must match this regular expression
-	valid_arg = '[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?(-[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?)?'
-	if re.match(valid_stamp_regex, timestamp) is None:
+	valid_ts = '[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?(-[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?)?'
+	if re.match(valid_ts, timestamp) is None:
 		raise ValueError
 	
 	# Any timestamp matching this regular expresssion is not a wildcard
@@ -188,19 +223,19 @@ def parse_timestamp(timestamp):
 	if timestamp.find('-') > -1:
 		start_ts, end_ts = timestamp.split('-')
 	
-		if re.match(precise_stamp_regex, start_ts) is None:
+		if re.match(precice_ts, start_ts) is None:
 			hour, minute = timestamp.split(':')
 			start = datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute))
 		else:
 			hour, minute, second = timestamp.split(':')
 			start = datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), int(second))
 	
-		if re.match(end_ts, precise_stamp_regex) is None:
+		if re.match(precice_ts, end_ts) is None:
 			hour, minute = timestamp.split(':')
 			end 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), 59)
 		else:
 			end = datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), int(second))
-	elif re.match(precise_stamp_regex, timestamp) is None:
+	elif re.match(precice_ts, timestamp) is None:
 		hour, minute = timestamp.split(':')
 		start 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute))
 		end 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), 59)
@@ -227,14 +262,10 @@ if __name__ == '__main__':
 		except ValueError:
 			print 'Invalid timestamp format'
 		else:
-			try:
-				reddit_logs = RedditLogFile(filename)
-			except IOError:
-				print 'Unable to open log file'
-			else:
-				try:
-					for log in reddit_logs.search(start_ts, end_ts):
-						print log
-				except RedditLogFile.SearchingError, e:
-					print 'Error: ' + str(e)
-	
+			start_time = time.time()
+			count = 0
+			logs = RedditLogFinder(filename)
+			for log in logs.find(start_ts, end_ts):
+				print log
+				count += 1
+			print '%d logs found in %f seconds.' % (count, time.time() - start_time)
