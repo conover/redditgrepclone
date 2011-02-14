@@ -23,7 +23,7 @@ class RedditGrepClone(object):
 	
 	def __init__(self, filename):
 		self.file = open(filename, 'rb')
-		self.file_size = os.path.getsize(filename)
+		self.file_size = os.path.getsize(filename) - 1
 		
 	def find(self, abs_start_ts, abs_end_ts):
 		'''
@@ -37,7 +37,7 @@ class RedditGrepClone(object):
 		
 		# First and last log timestamps
 		first_ts = self._date_at_offset()
-		self.file.seek(self.file_size - 2)
+		self.file.seek(self.file_size)
 		last_ts = self._date_at_offset()
 		last_offset = self.file.tell()
 		self.file.seek(0)
@@ -45,7 +45,7 @@ class RedditGrepClone(object):
 		searches = [] # Set of timestamp ranges we need to search for. In the form of (start_ts, end_ts)
 		offsets = [] # Set of offset ranges need to output
 		
-		# Possible midnight roll overs. Assume there will only be one
+		# Possible midnight roll overs.
 		one_day = timedelta(days = 1)
 		if abs_start_ts > abs_end_ts: # Ex: 23:50:51-0:00:1
 			searches.append((abs_start_ts - one_day, abs_end_ts))
@@ -58,17 +58,25 @@ class RedditGrepClone(object):
 		for start_ts, end_ts in searches:
 			
 			if end_ts < first_ts or start_ts > last_ts:
-				# Ranges are such that no logs can be returned
+				# No logs will be found with these conditions
 				continue
 			else:
 				start_offset, end_offset = None, None
 			
-				upper_bound = self.file_size
+				upper_bound = self.file_size - 1
 				lower_bound = 0
 				prev_seek_offset = -1
 				while True:
 					seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
 					if prev_seek_offset == seek_offset:
+						if start_ts == end_ts:
+							# Specific timestamp not found
+							return
+						else:
+							next_ts = self._date_at_offset()
+							if next_ts < start_ts:
+								self.file.readline()
+							start_offset = self.file.tell()
 						break
 					else:
 						prev_seek_offset = seek_offset
@@ -100,6 +108,7 @@ class RedditGrepClone(object):
 				while True:
 					seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
 					if prev_seek_offset == seek_offset:
+						end_offset = self.file.tell()
 						break
 					else:
 						prev_seek_offset = seek_offset
@@ -119,6 +128,7 @@ class RedditGrepClone(object):
 							self._date_at_offset()
 							end_offset = self.file.tell()
 							break
+				
 				offsets.append((start_offset, end_offset))
 			
 		for start_offset, end_offset in offsets:
@@ -133,18 +143,19 @@ class RedditGrepClone(object):
 			@return datetime of the log at current file offset
 		'''
 		
-		start_offset, reads, seek_to = self.file.tell(), 0, None
+		start_offset, reads, seek_to, line = self.file.tell(), 0, None, []
 		while True:
 			seek_to = start_offset - reads
 			self.file.seek(seek_to)
 			if seek_to == 0: break # beginning of file
 			char = self.file.read(1)
-			if char == '\n' and reads > 0: break
+			line.append(char)
+			if char == '\n' and reads > 0:
+				break
 			reads += 1
 			
 		# Timestamp parts could be delimited by more than one space
-		line = self.file.readline()
-		fixed_line = re.sub('\s+', ' ', line, 3)  
+		fixed_line = re.sub('\s+', self.file.readline(), l, 3)  
 		month, day, timestamp, log = fixed_line.split(' ', 3)
 		hour, minute, second = timestamp.split(':')
 		
@@ -163,32 +174,33 @@ def parse_timestamp(timestamp):
 		raise ValueError
 	
 	# Any timestamp matching this regular expresssion is not a wildcard
-	precice_ts = '[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}'
-	start, end = None, None
+	precise_ts = '[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}'
+	start_dt, end_dt = None, None
 	
 	if timestamp.find('-') > -1:
 		start_ts, end_ts = timestamp.split('-')
 	
-		if re.match(precice_ts, start_ts) is None:
-			hour, minute = timestamp.split(':')
-			start = datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute))
+		if re.match(precise_ts, start_ts) is None:
+			hour, minute = start_ts.split(':')
+			start_dt = datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute))
 		else:
-			hour, minute, second = timestamp.split(':')
-			start = datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), int(second))
+			hour, minute, second = start_ts.split(':')
+			start_dt = datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), int(second))
 	
-		if re.match(precice_ts, end_ts) is None:
-			hour, minute = timestamp.split(':')
-			end 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), 59)
+		if re.match(precise_ts, end_ts) is None:
+			hour, minute = end_ts.split(':')
+			end_dt 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), 59)
 		else:
-			end = datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), int(second))
-	elif re.match(precice_ts, timestamp) is None:
+			hour, minute, second = end_ts.split(':')
+			end_dt = datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), int(second))
+	elif re.match(precise_ts, timestamp) is None:
 		hour, minute = timestamp.split(':')
-		start 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute))
-		end 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), 59)
+		start_dt 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute))
+		end_dt 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), 59)
 	else:
 		hour, minute, second = timestamp.split(':')
-		start 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), int(second))
-	return start, end
+		start_dt 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), int(second))
+	return start_dt, end_dt
 	
 if __name__ == '__main__':
 	
@@ -206,12 +218,13 @@ if __name__ == '__main__':
 		try:
 			start_ts, end_ts = parse_timestamp(timestamp)
 		except ValueError:
+			raise
 			print 'Invalid timestamp format'
 		else:
 			start_time = time.time()
 			count = 0
 			logs = RedditGrepClone(filename)
 			for log in logs.find(start_ts, end_ts):
-				print log
+				print log.replace('\n', '')
 				count += 1
 			print '%d logs found in %f seconds.' % (count, time.time() - start_time)
