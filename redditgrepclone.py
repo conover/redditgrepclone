@@ -15,7 +15,7 @@ MONTH_MAP	= {	'jan':1,
 			'nov':11,
 			'dec':12}
 
-TODAY = datetime(2011,2,10)
+TODAY = datetime(2011,2,11)
 START_OF_TODAY = datetime(TODAY.year, TODAY.month, TODAY.day, 0, 0, 0)
 END_OF_TODAY = datetime(TODAY.year, TODAY.month, TODAY.day, 23, 59, 59)
 
@@ -32,7 +32,8 @@ class RedditGrepClone(object):
 			@return generator of logs
 		'''
 		# Specific timestamp
-		if abs_end_ts is None: abs_end_ts = abs_start_ts
+		if abs_end_ts is None: 
+			abs_end_ts = abs_start_ts
 		
 		# First and last log timestamps
 		first_ts = self._date_at_offset()
@@ -66,61 +67,29 @@ class RedditGrepClone(object):
 			upper_bound = self.file_size
 			lower_bound = 0
 			prev_seek_offset = -1
-			i = 0
-			print '_______________'
-			while i < 10:
-				i += 1
-				time.sleep(.5)
+			while True:
 				seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
-				print str(upper_bound) + ' ' + str(lower_bound) + ' ' + str(seek_offset)
 				if prev_seek_offset == seek_offset:
 					break
 				else:
 					prev_seek_offset = seek_offset
 				self.file.seek(seek_offset)
 				seek_ts = self._date_at_offset()
-				print str(start_ts) + ' ' + str(seek_ts)
 				if seek_ts > start_ts: # Passed it
-					print 'Passed it'
 					upper_bound = seek_offset
 				elif seek_ts < start_ts: # Before it
-					print 'Before it'
 					lower_bound = seek_offset
 				else:
-					print 'Found one'
-					upper_bound = seek_offset
-					prev_seek_offset = -1
-					j = 0
-					while j < 10:
-						j += 1
-						time.sleep(.5)
-						seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
-						print str(upper_bound) + ' ' + str(lower_bound) + ' ' + str(seek_offset)
+					self.file.seek(self.file.tell() - 1)
+					prev_ts = self._date_at_offset()
+					if prev_ts == start_ts:
+						upper_bound = seek_offset
+					else:
 						self.file.seek(seek_offset)
-						seek_ts = self._date_at_offset()
-						if seek_ts == start_ts:
-							self.file.seek(self.file.tell() - 1)
-							prev_ts = self._date_at_offset()
-							if prev_ts != start_ts:
-								print 'Found first 1'
-								self.file.seek(seek_offset)
-								self._date_at_offset()
-								start_offset = self.file.tell()
-								print self.file.readline()
-								break
-							else:
-								upper_bound = seek_offset
-						else:
-							self.file.readline()
-							next_ts = self._date_at_offset()
-							if next_ts == start_ts:
-								print 'Found first 2'
-								start_offset = self.file.tell()
-								print self.file.readline()
-								break
-							else:
-								lower_bound = seek_offset	
-					break
+						self._date_at_offset()
+						start_offset = self.file.tell()
+						break
+			
 			upper_bound = self.file_size
 			if start_offset is None:
 				lower_bound = 0
@@ -128,58 +97,36 @@ class RedditGrepClone(object):
 				lower_bound = start_offset
 				
 			prev_seek_offset = -1
-			i = 0
-			print 'XXXXXXXXXXXXXXXXXXXX'
-			while i < 20:
-				i += 1
-				time.sleep(.5)
+			
+			while True:
 				seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
-				print str(upper_bound) + ' ' + str(lower_bound) + ' ' + str(seek_offset)
 				if prev_seek_offset == seek_offset:
-					print 'Prev seek fault'
 					break
 				else:
 					prev_seek_offset = seek_offset
 				self.file.seek(seek_offset)
 				seek_ts = self._date_at_offset()
-				print str(start_ts) + ' ' + str(seek_ts)
 				if seek_ts > end_ts: # Passed it
-					print 'Passed it'
 					upper_bound = seek_offset
 				elif seek_ts < end_ts: # Before it
-					print 'Before it'
 					lower_bound = seek_offset
 				else:
-					lower_bound = seek_offset
-					j = 0
-					while j < 10:
-						j += 1
-						time.sleep(.5)
-						seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
-						print str(upper_bound) + ' ' + str(lower_bound) + ' ' + str(seek_offset)
+					self.file.readline()
+					next_ts = self._date_at_offset()
+					if next_ts == end_ts:
+						lower_bound = seek_offset
+					else:
 						self.file.seek(seek_offset)
-						seek_ts = self._date_at_offset()
-						if seek_ts == end_ts:
-							self.file.readline()
-							next_ts = self._date_at_offset()
-							if next_ts != end_ts:
-								print 'Found last 1'
-								self.file.seek(seek_offset)
-								self._date_at_offset()
-								print self.file.readline()
-								break
-							else:
-								lower_bound = seek_offset
-						else:
-							self.file.seek(self.file.tell() - 1)
-							prev_ts = self._date_at_offset()
-							if prev_ts == end_ts:
-								print 'Found last 2'
-								print self.file.readline()
-								break
-							else:
-								upper_bound = seek_offset
-					break
+						self._date_at_offset()
+						end_offset = self.file.tell()
+						break
+			offsets.append((start_offset, end_offset))
+			
+		for start_offset, end_offset in offsets:
+			self.file.seek(start_offset)
+			while self.file.tell() <= end_offset + 1:
+				yield self.file.readline()
+		
 	def _date_at_offset(self):
 		'''
 			Backtrack to find the beginning of the current line and parses
@@ -264,7 +211,7 @@ if __name__ == '__main__':
 		else:
 			start_time = time.time()
 			count = 0
-			logs = RedditLogFinder(filename)
+			logs = RedditGrepClone(filename)
 			for log in logs.find(start_ts, end_ts):
 				print log
 				count += 1
