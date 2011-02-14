@@ -73,6 +73,8 @@ class RedditGrepClone(object):
 							# Specific timestamp not found
 							return
 						else:
+							# It's possible we landed on the wrong side of 
+							# the starting timestamp
 							next_ts = self._date_at_offset()
 							if next_ts < start_ts:
 								self.file.readline()
@@ -83,9 +85,9 @@ class RedditGrepClone(object):
 					self.file.seek(seek_offset)
 					seek_ts = self._date_at_offset()
 					if seek_ts > start_ts: # Passed it
-						upper_bound = seek_offset
+						upper_bound = self.file.tell()
 					elif seek_ts < start_ts: # Before it
-						lower_bound = seek_offset
+						lower_bound = self.file.tell()
 					else:
 						self.file.seek(self.file.tell() - 1)
 						prev_ts = self._date_at_offset()
@@ -115,14 +117,14 @@ class RedditGrepClone(object):
 					self.file.seek(seek_offset)
 					seek_ts = self._date_at_offset()
 					if seek_ts > end_ts: # Passed it
-						upper_bound = seek_offset
+						upper_bound = self.file.tell()
 					elif seek_ts < end_ts: # Before it
-						lower_bound = seek_offset
+						lower_bound = self.file.tell()
 					else:
 						self.file.readline()
 						next_ts = self._date_at_offset()
 						if next_ts == end_ts:
-							lower_bound = seek_offset
+							lower_bound = self.file.tell()
 						else:
 							self.file.seek(seek_offset)
 							self._date_at_offset()
