@@ -1,4 +1,7 @@
-import os, os.path, sys, types, re, time
+import os
+import os.path
+import sys
+import re
 from datetime import datetime
 from datetime import timedelta
 
@@ -6,14 +9,17 @@ class RedditGrepClone(object):
 	'''
 		Print lines matching timestamp pattern.
 	'''
-	__VERSION__ = 0.1
-	__AUTHOR__ = 'Christopher Conover'
+	__version__ = 0.1
 	
 	# Key dates and times
 	_TODAY 			= datetime(2011,2,11)
 	_START_OF_TODAY = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 0, 0, 0)
-	_END_OF_TODAY 	= datetime(_TODAY.year, _TODAY.month, _TODAY.day, 23, 59, 59)
-	_NEW_YEARS_EVE 	= True if _TODAY.year != (_TODAY + timedelta(days = 1)).year else False
+	_END_OF_TODAY 	= datetime(_TODAY.year, _TODAY.month, _TODAY.day, 
+																23, 59, 59)
+	
+	_NEW_YEARS_EVE 	= False 
+	if _TODAY.year != (_TODAY + timedelta(days = 1)).year:
+		_NEW_YEARS_EVE = True
 	
 	# Which log in a list of logs with the same timestamp are we looking for
 	_CHASE_FIRST, _CHASE_LAST = 0, 1
@@ -24,7 +30,8 @@ class RedditGrepClone(object):
 	# Set of searches to be performed. Form (start_dt, end_dt)
 	_searches = []
 	
-	# Set of resulting offsets found by searching. Form (start_offset, end_offset)
+	# Set of resulting offsets found by searching. 
+	# Form (start_offset, end_offset)
 	_offsets = []
 	
 	# Absolute start and end datetimes provided by constructor
@@ -44,16 +51,20 @@ class RedditGrepClone(object):
 		else:
 			if len(args) > 1:
 				try:
-					self._abs_start_dt, self._abs_end_dt = self._parse_pattern(args[0])
+					self._abs_start_dt, self._abs_end_dt = \
+												self._parse_pattern(args[0])
 					filename = args[1]
 				except self.ArgumentError:
 					try:
-						self._abs_start_dt, self._abs_end_dt = self._parse_pattern(args[1])
+						self._abs_start_dt, self._abs_end_dt = \
+												self._parse_pattern(args[1])
 						filename = args[0]
-					except ArgumntError:
-						raise self.ArgumentError, 'Neither arguement specified is a valid timestamp pattern'
+					except self.ArgumentError:
+						raise self.ArgumentError, \
+				'''Neither arguement specified is a valid timestamp pattern'''
 			else:
-				self._abs_start_dt, self._abs_end_dt = self._parse_pattern(args[0])
+				self._abs_start_dt, self._abs_end_dt = \
+												self._parse_pattern(args[0])
 				
 		assert isinstance(filename, basestring)
 		self.file = open(filename, 'rb')
@@ -90,8 +101,10 @@ class RedditGrepClone(object):
 			# Could be Yesterday 23:50:51 - Today 00:00:01
 			# or
 			# Could be Today 23:50:51 - Tomorrow 00:00:01
-			possible_searches.append((self._abs_start_dt - one_day, self._abs_end_dt))
-			possible_searches.append((self._abs_start_dt, self._abs_end_dt + one_day))
+			possible_searches.append((self._abs_start_dt - one_day, 
+															self._abs_end_dt))
+			possible_searches.append((self._abs_start_dt, 
+												self._abs_end_dt + one_day))
 		else:
 			# Intra-day range
 			# Ex: 00:00:01-:00:00:05
@@ -101,11 +114,13 @@ class RedditGrepClone(object):
 			# or
 			# Could be Tomorrow 00:00:01 to Tomorrow 00:00:05
 			#
-			# While the spec specified the overlap would only be a few minutes,
-			# best not to assume.
+			# While the spec specified the overlap would only be a few 
+			# minutes, best not to assume.
 			possible_searches.append((self._abs_start_dt, self._abs_end_dt))
-			possible_searches.append((self._abs_start_dt + one_day, self._abs_end_dt + one_day))
-			possible_searches.append((self._abs_start_dt - one_day, self._abs_end_dt - one_day))
+			possible_searches.append((self._abs_start_dt + one_day, 
+												self._abs_end_dt + one_day))
+			possible_searches.append((self._abs_start_dt - one_day, 
+												self._abs_end_dt - one_day))
 		
 		# Filter out searches that can't match anything in this log file
 		for search in possible_searches:
@@ -124,14 +139,15 @@ class RedditGrepClone(object):
 			start_offset = self._find_offset(start_dt, 0, self._CHASE_FIRST)
 			if start_offset is None and self._look_for_exact:
 				continue
-			end_offset = self._find_offset(end_dt, start_offset, self._CHASE_LAST)
+			end_offset = self._find_offset(end_dt, start_offset, 
+															self._CHASE_LAST)
 			self._offsets.append((start_offset, end_offset))
 		
 		return
 		
 	def __iter__(self):
 		'''
-			Returns next() to facilitate iteration
+			Returns self.next() to facilitate iteration
 		'''
 		return self.next()
 		
@@ -167,9 +183,11 @@ class RedditGrepClone(object):
 				else:
 					# Could be on wrong side of best guess timestamp after last 
 					# jump
-					if mode == self._CHASE_FIRST and last_jump == FORWARD_JUMP:
+					if (mode == self._CHASE_FIRST and 
+												last_jump == FORWARD_JUMP):
 						self.file.readline()
-					elif mode == self._CHASE_LAST and last_jump == BACK_JUMP and self.file.tell() > 0:
+					elif (mode == self._CHASE_LAST and 
+							last_jump == BACK_JUMP and self.file.tell() > 0):
 						self.file.seek(self.file.tell() - 1)
 						self._date_at_offset()
 					return self.file.tell()
@@ -185,8 +203,8 @@ class RedditGrepClone(object):
 			elif seek_ts < target_ts: # Before it
 				lower_bound, last_jump = seek_offset, FORWARD_JUMP
 			else:
-				# Make sure this is the first or last log in a list of potentially
-				# many logs with the same timestamp
+				# Make sure this is the first or last log in a list of 
+				# potentially many logs with the same timestamp
 				if self.file.tell() == 0:
 					return 0
 				elif mode == self._CHASE_FIRST:
@@ -226,9 +244,9 @@ class RedditGrepClone(object):
 				break
 			reads += 1
 			
-		# Normalize spacing
+		# Homogenize spacing
 		fixed_line = re.sub('\s+', ' ', self.file.readline(), 3)  
-		month, day, timestamp, log = fixed_line.split(' ', 3)
+		month, day, time, log = fixed_line.split(' ', 3)
 		
 		# readline() moved the cursor to end of the line, move it back
 		# to the beginning
@@ -237,9 +255,11 @@ class RedditGrepClone(object):
 		else:
 			self.file.seek(0)
 		
-		log_dt = datetime.strptime(' '.join((month, day, timestamp)), '%b %d %H:%M:%S')
-		if self._first_log_dt is not None and log_dt.month == 1 and self._first_log_dt == 12: 
-			# Ex: _first_log_dt is Dec 31 23:50:00 and log_dt is Jan 1 00:01:01
+		log_dt = datetime.strptime(' '.join((month, day, time)), 
+															'%b %d %H:%M:%S')
+		if (self._first_log_dt is not None and log_dt.month == 1 and 
+													self._first_log_dt == 12): 
+			# Ex: _first_log_dt = Dec 31 23:50:00 and log_dt = Jan 1 00:01:01
 			return log_dt.replace(year = self._TODAY.year + 1)
 		else:
 			return log_dt.replace(year = self._TODAY.year)
@@ -254,39 +274,45 @@ class RedditGrepClone(object):
 		start_dt, end_dt = None, None
 		
 		# Any possible arguement must match this regular expression
-		valid_ts = '[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?(-[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?)?'
-		if re.match(valid_ts, pattern) is None:
+		valid_ts = re.compile('''	[0-9]{1,2}:[0-9]{1,2}
+									([0-9]{1,2})?
+									(-[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?)?'''
+							, re.X)
+		if valid_ts.match(pattern) is None:
 			raise self.ArgumentError, 'Invalid timestamp pattern format'
 	
 		# Any timestamp matching this regular expresssion is not a wildcard
-		precise_ts = '[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}'
+		precise_ts = re.compile('[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}')
 		
-		# Ignore midnight and new year rollovers here. Those cases will be taken
-		# care of by looking at the first and last log timestamps later
+		# Ignore midnight and new year rollovers here. Those cases will be 
+		# taken care of by looking at the first and last log timestamps later
 		dt_date_args = (self._TODAY.year,self._TODAY.month, self._TODAY.day)
 		
 		if pattern.find('-') > -1: 
 			# Two arg range
 			start_ts, end_ts = pattern.split('-')
 			
-			if re.match(precise_ts, start_ts) is None:
+			if precise_ts.match(start_ts) is None:
 				 # Wildcard start
 				hour, minute = start_ts.split(':')
 				start_dt = datetime(*dt_date_args + (int(hour), int(minute)))
 			else:
 				# Exact start
 				hour, minute, second = start_ts.split(':')
-				start_dt = datetime(*dt_date_args + (int(hour), int(minute), int(second)))
+				start_dt = datetime(*dt_date_args + (int(hour), int(minute), 
+																int(second)))
 	
-			if re.match(precise_ts, end_ts) is None:
+			if precise_ts.match(end_ts) is None:
 				# Wildcard end
 				hour, minute = end_ts.split(':')
-				end_dt 	= datetime(*dt_date_args + (int(hour), int(minute), 59))
+				end_dt 	= datetime(*dt_date_args + (int(hour), int(minute), 
+																		59))
 			else:
 				# Exact end
 				hour, minute, second = end_ts.split(':')
-				end_dt = datetime(*dt_date_args + (int(hour), int(minute), int(second)))
-		elif re.match(precise_ts, pattern) is None:
+				end_dt = datetime(*dt_date_args + (int(hour), int(minute), 
+																int(second)))
+		elif precise_ts.match(pattern) is None:
 			# One arg range
 			hour, minute = pattern.split(':')
 			start_dt = datetime(*dt_date_args + (int(hour), int(minute)))
@@ -294,7 +320,8 @@ class RedditGrepClone(object):
 		else:
 			# Exact
 			hour, minute, second = pattern.split(':')
-			start_dt = datetime(*dt_date_args + (int(hour), int(minute), int(second)))
+			start_dt = datetime(*dt_date_args + (int(hour), int(minute), 
+																int(second)))
 			end_dt = start_dt
 			self._look_for_exact = True
 		return start_dt, end_dt
