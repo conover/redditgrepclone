@@ -12,13 +12,10 @@ class RedditGrepClone(object):
 	__version__ = 0.1
 	
 	# Key dates and times
-	_TODAY 			= datetime(2011,2,11)
+	_TODAY 			= datetime(2011, 2, 11)
 	_START_OF_TODAY = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 0, 0, 0)
 	_END_OF_TODAY 	= datetime(_TODAY.year, _TODAY.month, _TODAY.day, 
 																23, 59, 59)
-	_NEW_YEARS_EVE 	= False 
-	if _TODAY.year != (_TODAY + timedelta(days = 1)).year:
-		_NEW_YEARS_EVE = True
 	
 	# Which log in a list of logs with the same timestamp are we looking for
 	_CHASE_FIRST, _CHASE_LAST = 0, 1
@@ -42,6 +39,9 @@ class RedditGrepClone(object):
 	class ArgumentError(Exception): pass
 	class ParseError(Exception): pass
 	
+	def __del__(self):
+		self.file.close()
+		
 	def __init__(self, *args):
 		
 		filename = '/logs/haproxy.log' # default filename
@@ -66,7 +66,7 @@ class RedditGrepClone(object):
 				self._abs_start_dt, self._abs_end_dt = \
 												self._parse_pattern(args[0])
 				
-		assert isinstance(filename, basestring)
+		assert isinstance(filename, basestring), 'Filename must be a string'
 		self.file = open(filename, 'rb')
 		self.file_size = os.path.getsize(filename) - 1
 		
@@ -77,7 +77,7 @@ class RedditGrepClone(object):
 		'''
 			Find first and last log timestamps and offsets
 		'''
-		
+		# Assume first log starts and offset 0
 		self.file.seek(0)
 		self._first_log_dt = self._date_at_offset()
 		
@@ -92,7 +92,6 @@ class RedditGrepClone(object):
 			Define a set of searches to be performed. Takes into account
 			midnight rollovers.
 		'''
-		
 		possible_searches = []
 		one_day = timedelta(days = 1)
 		if self._abs_start_dt > self._abs_end_dt:
@@ -133,9 +132,7 @@ class RedditGrepClone(object):
 		'''
 			Finds the offsets of logs within the ranges defined in _searches.
 		'''
-		
-		for search in self._searches:
-			start_dt, end_dt = search
+		for start_dt, end_dt in self._searches:
 			start_offset = self._find_offset(start_dt, 0, self._CHASE_FIRST)
 			if start_offset is None and self._look_for_exact:
 				continue
@@ -197,7 +194,6 @@ class RedditGrepClone(object):
 			# Move the midpoint and check the date	
 			self.file.seek(seek_offset)
 			seek_ts = self._date_at_offset()
-			
 			if seek_ts > target_ts: # Passed it
 				upper_bound, last_jump = seek_offset, BACK_JUMP
 			elif seek_ts < target_ts: # Before it
@@ -233,30 +229,31 @@ class RedditGrepClone(object):
 			
 			Returns a datetime object of the current line log's timestamp.
 		'''
-		
-		start_offset, reads, seek_to = self.file.tell(), 0, None
+		start_offset, reads, line, seek_to = self.file.tell(), 0, [], None
 		while True:
 			seek_to = start_offset - reads
 			self.file.seek(seek_to)
 			if seek_to == 0: break # Beginning of file
 			char = self.file.read(1)
-			if char == '\n' and reads > 0: # Might have landed on line break
+			# Could have landed directly on the new line. Avoid new lines at
+			# the end of the file
+			if (char == '\n' and reads > 0 and 
+									seek_to != self.file_size):
 				break
 			reads += 1
 		
 		# Homogenize spacing
 		fixed_line = re.sub('\s+', ' ', self.file.readline(), 3)
-		
 		try:
 			month, day, time, log = fixed_line.split(' ', 3)
-		
+	
 			# readline() moved the cursor to end of the line, move it back
 			# to the beginning
 			if seek_to > 0:
 				self.file.seek(seek_to + 1)
 			else:
 				self.file.seek(0)
-		
+	
 			log_dt = datetime.strptime(' '.join((month, day, time)), 
 															'%b %d %H:%M:%S')
 			if (self._first_log_dt is not None and log_dt.month == 1 and 
@@ -264,22 +261,24 @@ class RedditGrepClone(object):
 				# Ex:
 				# _first_log_dt is Dec 31 23:50:00 
 				# log_dt is Jan 1 00:01:01
+				# Happy New Year
 				return log_dt.replace(year = self._TODAY.year + 1)
 			else:
 				return log_dt.replace(year = self._TODAY.year)
 		except Exception, e:
-			# Any exceptions here mean that there is a log in the wrong format
-			# So cover all the exceptions and report the offest
-			raise (self.ParseError, 
-				('Unexpected log format at offset %s. Error: %s. Log: %s' % 
-											(str(seek_to), e, fixed_line)))
+			# Any exceptions here mean that there is a log in the wrong 
+			# format. So cover all the exceptions and report the offest
+			raise self.ParseError, \
+				'Unexpected log format at offset %s. Error: %s. Log: %s' % \
+											(str(seek_to), e, fixed_line)
 			
 	def _parse_pattern(self, pattern):
 		'''
-			Parses and validates input pattern
+			Parses and validates input pattern.
 			@return start and end as datetimes
 		'''
-		assert isinstance(pattern,basestring)
+		assert isinstance(pattern,basestring), \
+										'Timestamp pattern must be a string'
 		
 		start_dt, end_dt = None, None
 		
