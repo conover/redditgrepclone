@@ -16,7 +16,6 @@ class RedditGrepClone(object):
 	_START_OF_TODAY = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 0, 0, 0)
 	_END_OF_TODAY 	= datetime(_TODAY.year, _TODAY.month, _TODAY.day, 
 																23, 59, 59)
-	
 	_NEW_YEARS_EVE 	= False 
 	if _TODAY.year != (_TODAY + timedelta(days = 1)).year:
 		_NEW_YEARS_EVE = True
@@ -37,10 +36,11 @@ class RedditGrepClone(object):
 	# Absolute start and end datetimes provided by constructor
 	_abs_start_dt, _abs_end_dt = None, None
 	
-	# Not a range...
+	# That's no range...
 	_look_for_exact = False
 	
 	class ArgumentError(Exception): pass
+	class ParseError(Exception): pass
 	
 	def __init__(self, *args):
 		
@@ -243,27 +243,37 @@ class RedditGrepClone(object):
 			if char == '\n' and reads > 0: # Might have landed on line break
 				break
 			reads += 1
-			
+		
 		# Homogenize spacing
-		fixed_line = re.sub('\s+', ' ', self.file.readline(), 3)  
-		month, day, time, log = fixed_line.split(' ', 3)
+		fixed_line = re.sub('\s+', ' ', self.file.readline(), 3)
 		
-		# readline() moved the cursor to end of the line, move it back
-		# to the beginning
-		if seek_to > 0:
-			self.file.seek(seek_to + 1)
-		else:
-			self.file.seek(0)
+		try:
+			month, day, time, log = fixed_line.split(' ', 3)
 		
-		log_dt = datetime.strptime(' '.join((month, day, time)), 
+			# readline() moved the cursor to end of the line, move it back
+			# to the beginning
+			if seek_to > 0:
+				self.file.seek(seek_to + 1)
+			else:
+				self.file.seek(0)
+		
+			log_dt = datetime.strptime(' '.join((month, day, time)), 
 															'%b %d %H:%M:%S')
-		if (self._first_log_dt is not None and log_dt.month == 1 and 
-													self._first_log_dt == 12): 
-			# Ex: _first_log_dt = Dec 31 23:50:00 and log_dt = Jan 1 00:01:01
-			return log_dt.replace(year = self._TODAY.year + 1)
-		else:
-			return log_dt.replace(year = self._TODAY.year)
-				
+			if (self._first_log_dt is not None and log_dt.month == 1 and 
+													self._first_log_dt == 12):
+				# Ex:
+				# _first_log_dt is Dec 31 23:50:00 
+				# log_dt is Jan 1 00:01:01
+				return log_dt.replace(year = self._TODAY.year + 1)
+			else:
+				return log_dt.replace(year = self._TODAY.year)
+		except Exception, e:
+			# Any exceptions here mean that there is a log in the wrong format
+			# So cover all the exceptions and report the offest
+			raise (self.ParseError, 
+				('Unexpected log format at offset %s. Error: %s. Log: %s' % 
+											(str(seek_to), e, fixed_line)))
+			
 	def _parse_pattern(self, pattern):
 		'''
 			Parses and validates input pattern
