@@ -2,87 +2,155 @@ import os, os.path, sys, types, re, time
 from datetime import datetime
 from datetime import timedelta
 
-MONTH_MAP	= {	'jan':1,
-			'feb':2,
-			'mar':3,
-			'apr':4,
-			'may':5,
-			'jun':6,
-			'jul':7,
-			'aug':8,
-			'sep':9,
-			'oct':10,
-			'nov':11,
-			'dec':12}
-
-TODAY = datetime(2011,2,11)
-START_OF_TODAY = datetime(TODAY.year, TODAY.month, TODAY.day, 0, 0, 0)
-END_OF_TODAY = datetime(TODAY.year, TODAY.month, TODAY.day, 23, 59, 59)
-
 class RedditGrepClone(object):
+	'''
+		Print lines matching timestamp pattern.
+	'''
+	__VERSION__ = 0.1
+	__AUTHOR__ = 'Christopher Conover'
+	
+	# Key dates and times
+	_TODAY 			= datetime(2011,2,11)
+	_START_OF_TODAY = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 0, 0, 0)
+	_END_OF_TODAY 	= datetime(_TODAY.year, _TODAY.month, _TODAY.day, 23, 59, 59)
+	_NEW_YEARS_EVE 	= True if _TODAY.year != (_TODAY + timedelta(days = 1)).year else False
 	
 	# Which log in a list of logs with the same timestamp are we looking for
-	_CHASE_FIRST_MODE = 0
-	_CHASE_LAST_MODE = 1
+	_CHASE_FIRST, _CHASE_LAST = 0, 1
 	
-	def __init__(self, filename):
+	# Key log details
+	_first_log_dt, _last_log_dt, _last_log_offset = None, None, None
+	
+	# Set of searches to be performed. Form (start_dt, end_dt)
+	_searches = []
+	
+	# Set of resulting offsets found by searching. Form (start_offset, end_offset)
+	_offsets = []
+	
+	# Absolute start and end datetimes provided by constructor
+	_abs_start_dt, _abs_end_dt = None, None
+	
+	# Not a range...
+	_look_for_exact = False
+	
+	class ArgumentError(Exception): pass
+	
+	def __init__(self, *args):
+		
+		filename = '/logs/haproxy.log' # default filename
+		
+		if len(args) > 2:
+			raise self.ArgumentError, 'Expecting 1 or 2 arguements'
+		else:
+			if len(args) > 1:
+				try:
+					self._abs_start_dt, self._abs_end_dt = self._parse_pattern(args[0])
+					filename = args[1]
+				except self.ArgumentError:
+					try:
+						self._abs_start_dt, self._abs_end_dt = self._parse_pattern(args[1])
+						filename = args[0]
+					except ArgumntError:
+						raise self.ArgumentError, 'Neither arguement specified is a valid timestamp pattern'
+			else:
+				self._abs_start_dt, self._abs_end_dt = self._parse_pattern(args[0])
+				
+		assert isinstance(filename, basestring)
 		self.file = open(filename, 'rb')
 		self.file_size = os.path.getsize(filename) - 1
 		
-	def find(self, abs_start_ts, abs_end_ts):
-		'''
-			Utilize binary search to find the logs matching the specified timestamps.
-			@return generator of logs
-		'''
-		# Logs with exact timestamp
-		self.look_for_exact = False
-		if abs_end_ts is None: 
-			abs_end_ts = abs_start_ts
-			self.look_for_exact = True
+		self._findKeyLogs()
+		self._defineSearches()
 		
-		first_ts = self._date_at_offset() # First timestamp in the file
+	def _findKeyLogs(self):
+		'''
+			Find first and last log timestamps and offsets
+		'''
+		
+		self.file.seek(0)
+		self._first_log_dt = self._date_at_offset()
+		
 		self.file.seek(self.file_size)
-		last_ts = self._date_at_offset() # Last timestamp in the file
-		last_offset = self.file.tell()
+		self._last_log_dt = self._date_at_offset()
+		self._last_log_offset = self.file.tell()
 		
-		searches = [] # Set of timestamp ranges we need to search for. In the form of (start_ts, end_ts)
-		offsets = [] # Set of offset ranges need to output
+		return
 		
-		# Possible midnight roll overs. Invalid ranges will be discareded later
+	def _defineSearches(self):
+		'''
+			Define a set of searches to be performed. Takes into account
+			midnight rollovers.
+		'''
+		
+		possible_searches = []
 		one_day = timedelta(days = 1)
-		if abs_start_ts > abs_end_ts: # Ex: 23:50:51-0:00:1
-			searches.append((abs_start_ts - one_day, abs_end_ts))
-			searches.append((abs_start_ts, abs_end_ts + one_day))
+		if self._abs_start_dt > self._abs_end_dt:
+			# Spanning a midnight 
+			# Ex: 23:50:51-0:00:1 
+			# Could be Yesterday 23:50:51 - Today 00:00:01
+			# or
+			# Could be Today 23:50:51 - Tomorrow 00:00:01
+			possible_searches.append((self._abs_start_dt - one_day, self._abs_end_dt))
+			possible_searches.append((self._abs_start_dt, self._abs_end_dt + one_day))
 		else:
-			searches.append((abs_start_ts, abs_end_ts))
-			searches.append((abs_start_ts + one_day, abs_end_ts + one_day))
-			searches.append((abs_end_ts - one_day, abs_end_ts - one_day))
+			# Intra-day range
+			# Ex: 00:00:01-:00:00:05
+			# Could be Yesterday 00:00:01 to Yesterday 00:00:05
+			# or
+			# Could be Today 00:00:01 to Today 00:00:05
+			# or
+			# Could be Tomorrow 00:00:01 to Tomorrow 00:00:05
+			#
+			# While the spec specified the overlap would only be a few minutes,
+			# best not to assume.
+			possible_searches.append((self._abs_start_dt, self._abs_end_dt))
+			possible_searches.append((self._abs_start_dt + one_day, self._abs_end_dt + one_day))
+			possible_searches.append((self._abs_start_dt - one_day, self._abs_end_dt - one_day))
 		
-		for start_ts, end_ts in searches:
-			if end_ts < first_ts or start_ts > last_ts:
-				# Discard invalid timestamp ranges
+		# Filter out searches that can't match anything in this log file
+		for search in possible_searches:
+			start_dt, end_dt = search
+			if end_dt >= self._first_log_dt and start_dt <= self._last_log_dt:
+				self._searches.append(search)
+		return
+		
+	def search(self):
+		'''
+			Finds the offsets of logs within the ranges defined in _searches.
+		'''
+		
+		for search in self._searches:
+			start_dt, end_dt = search
+			start_offset = self._find_offset(start_dt, 0, self._CHASE_FIRST)
+			if start_offset is None and self._look_for_exact:
 				continue
-			else:
-				
-				start_offset = self._find_offset(start_ts, 0, self._CHASE_FIRST_MODE)
-				if start_offset is None and self.look_for_exact: 
-					continue
-				end_offset = self._find_offset(end_ts, start_offset, self._CHASE_LAST_MODE)
-				offsets.append((start_offset, end_offset))
-			
-		for start_offset, end_offset in offsets:
+			end_offset = self._find_offset(end_dt, start_offset, self._CHASE_LAST)
+			self._offsets.append((start_offset, end_offset))
+		
+		return
+		
+	def __iter__(self):
+		'''
+			Returns next() to facilitate iteration
+		'''
+		return self.next()
+		
+	def next(self):
+		'''
+			Use a generator to iterate over all the logs between each set of
+			offsets. 
+		'''
+		for start_offset, end_offset in self._offsets:
 			self.file.seek(start_offset)
 			while self.file.tell() <= end_offset + 1:
 				yield self.file.readline()
-	
+		
 	def _find_offset(self, target_ts, lower_bound, mode):
 		'''
-			Uses binary search to find the target timestamp or get as close
-			as possible.
+			Binary search to find the offset of the log with closest possible
+			timestamp to the target timestamp.
 		'''
-		
-		FORWARD_JUMP 		= 0
-		BACK_JUMP 			= 1
+		FORWARD_JUMP,BACK_JUMP = 0, 1
 		
 		prev_seek_offset 	= -1
 		last_jump 			= None
@@ -94,14 +162,14 @@ class RedditGrepClone(object):
 			if prev_seek_offset == seek_offset:
 				# Oscillated back and forth between the same offset two
 				# iterations in a row. This is as close as we can get.
-				if self.look_for_exact:
+				if self._look_for_exact:
 					return
 				else:
 					# Could be on wrong side of best guess timestamp after last 
 					# jump
-					if mode == self._CHASE_FIRST_MODE and last_jump == FORWARD_JUMP:
+					if mode == self._CHASE_FIRST and last_jump == FORWARD_JUMP:
 						self.file.readline()
-					elif mode == self._CHASE_LAST_MODE and last_jump == BACK_JUMP and self.file.tell() > 0:
+					elif mode == self._CHASE_LAST and last_jump == BACK_JUMP and self.file.tell() > 0:
 						self.file.seek(self.file.tell() - 1)
 						self._date_at_offset()
 					return self.file.tell()
@@ -121,7 +189,7 @@ class RedditGrepClone(object):
 				# many logs with the same timestamp
 				if self.file.tell() == 0:
 					return 0
-				elif mode == self._CHASE_FIRST_MODE:
+				elif mode == self._CHASE_FIRST:
 					self.file.seek(self.file.tell() - 1)
 					prev_ts = self._date_at_offset()
 					if prev_ts == target_ts:
@@ -130,17 +198,16 @@ class RedditGrepClone(object):
 						self.file.seek(seek_offset)
 						self._date_at_offset()
 						return self.file.tell()
-				elif mode == self._CHASE_LAST_MODE:
+				elif mode == self._CHASE_LAST:
 					self.file.readline()
 					next_ts = self._date_at_offset()
-					if next_ts == end_ts:
+					if next_ts == target_ts:
 						lower_bound = seek_offset
 					else:
 						self.file.seek(seek_offset)
 						self._date_at_offset()
 						return self.file.tell()
 						
-	
 	def _date_at_offset(self):
 		'''
 			Backtrack to find the beginning of the current line and parse
@@ -153,17 +220,15 @@ class RedditGrepClone(object):
 		while True:
 			seek_to = start_offset - reads
 			self.file.seek(seek_to)
-			if seek_to == 0:
-				break # beginning of file
+			if seek_to == 0: break # Beginning of file
 			char = self.file.read(1)
 			if char == '\n' and reads > 0: # Might have landed on line break
 				break
 			reads += 1
 			
-		# Timestamp parts could be delimited by more than one space
+		# Normalize spacing
 		fixed_line = re.sub('\s+', ' ', self.file.readline(), 3)  
 		month, day, timestamp, log = fixed_line.split(' ', 3)
-		hour, minute, second = timestamp.split(':')
 		
 		# readline() moved the cursor to end of the line, move it back
 		# to the beginning
@@ -172,68 +237,72 @@ class RedditGrepClone(object):
 		else:
 			self.file.seek(0)
 		
-		return datetime(TODAY.year, MONTH_MAP[month.lower()], int(day), int(hour), int(minute), int(second))
-
-def parse_timestamp(timestamp):
-	assert isinstance(timestamp,types.StringType)
-	
-	# Any possible arguement must match this regular expression
-	valid_ts = '[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?(-[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?)?'
-	if re.match(valid_ts, timestamp) is None:
-		raise ValueError
-	
-	# Any timestamp matching this regular expresssion is not a wildcard
-	precise_ts = '[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}'
-	start_dt, end_dt = None, None
-	
-	if timestamp.find('-') > -1:
-		start_ts, end_ts = timestamp.split('-')
-	
-		if re.match(precise_ts, start_ts) is None:
-			hour, minute = start_ts.split(':')
-			start_dt = datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute))
+		log_dt = datetime.strptime(' '.join((month, day, timestamp)), '%b %d %H:%M:%S')
+		if self._first_log_dt is not None and log_dt.month == 1 and self._first_log_dt == 12: 
+			# Ex: _first_log_dt is Dec 31 23:50:00 and log_dt is Jan 1 00:01:01
+			return log_dt.replace(year = self._TODAY.year + 1)
 		else:
-			hour, minute, second = start_ts.split(':')
-			start_dt = datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), int(second))
+			return log_dt.replace(year = self._TODAY.year)
+				
+	def _parse_pattern(self, pattern):
+		'''
+			Parses and validates input pattern
+			@return start and end as datetimes
+		'''
+		assert isinstance(pattern,basestring)
+		
+		start_dt, end_dt = None, None
+		
+		# Any possible arguement must match this regular expression
+		valid_ts = '[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?(-[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?)?'
+		if re.match(valid_ts, pattern) is None:
+			raise self.ArgumentError, 'Invalid timestamp pattern format'
 	
-		if re.match(precise_ts, end_ts) is None:
-			hour, minute = end_ts.split(':')
-			end_dt 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), 59)
+		# Any timestamp matching this regular expresssion is not a wildcard
+		precise_ts = '[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}'
+		
+		# Ignore midnight and new year rollovers here. Those cases will be taken
+		# care of by looking at the first and last log timestamps later
+		dt_date_args = (self._TODAY.year,self._TODAY.month, self._TODAY.day)
+		
+		if pattern.find('-') > -1: 
+			# Two arg range
+			start_ts, end_ts = pattern.split('-')
+			
+			if re.match(precise_ts, start_ts) is None:
+				 # Wildcard start
+				hour, minute = start_ts.split(':')
+				start_dt = datetime(*dt_date_args + (int(hour), int(minute)))
+			else:
+				# Exact start
+				hour, minute, second = start_ts.split(':')
+				start_dt = datetime(*dt_date_args + (int(hour), int(minute), int(second)))
+	
+			if re.match(precise_ts, end_ts) is None:
+				# Wildcard end
+				hour, minute = end_ts.split(':')
+				end_dt 	= datetime(*dt_date_args + (int(hour), int(minute), 59))
+			else:
+				# Exact end
+				hour, minute, second = end_ts.split(':')
+				end_dt = datetime(*dt_date_args + (int(hour), int(minute), int(second)))
+		elif re.match(precise_ts, pattern) is None:
+			# One arg range
+			hour, minute = pattern.split(':')
+			start_dt = datetime(*dt_date_args + (int(hour), int(minute)))
+			end_dt = datetime(*dt_date_args + (int(hour), int(minute), 59))
 		else:
-			hour, minute, second = end_ts.split(':')
-			end_dt = datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), int(second))
-	elif re.match(precise_ts, timestamp) is None:
-		hour, minute = timestamp.split(':')
-		start_dt 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute))
-		end_dt 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), 59)
-	else:
-		hour, minute, second = timestamp.split(':')
-		start_dt 	= datetime(TODAY.year, TODAY.month, TODAY.day, int(hour), int(minute), int(second))
-	return start_dt, end_dt
-	
+			# Exact
+			hour, minute, second = pattern.split(':')
+			start_dt = datetime(*dt_date_args + (int(hour), int(minute), int(second)))
+			end_dt = start_dt
+			self._look_for_exact = True
+		return start_dt, end_dt
+		
 if __name__ == '__main__':
 	
-	if len(sys.argv) != 3:
-		print 'Usage:./search.py <TIMESTAMP|TIMESTAMP RANGE> <FILE>'
-		print 'Example: ./search.py 8:42:04 log.dat'
-		print '\t- Log lines with precise timestamp'
-		print 'Example:./search.py 10:01 log.dat'
-		print '\t- Log lines with timestamps between 10:01:00 and 10:01:59'
-		print 'Example:./search.py 23:59-0:03 log.dat'
-		print '\t- Log lines between 23:59:00 and 0:03:59'
-	else:
-		timestamp, filename = sys.argv[1], sys.argv[2]
-		
-		try:
-			start_ts, end_ts = parse_timestamp(timestamp)
-		except ValueError:
-			raise
-			print 'Invalid timestamp format'
-		else:
-			start_time = time.time()
-			count = 0
-			logs = RedditGrepClone(filename)
-			for log in logs.find(start_ts, end_ts):
-				print log.replace('\n', '')
-				count += 1
-			print '%d logs found in %f seconds.' % (count, time.time() - start_time)
+	tgrep = RedditGrepClone(*sys.argv[1:])
+	tgrep.search()
+	for log in tgrep:
+		print log.replace('\n', '')
+		#count += 1
