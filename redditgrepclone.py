@@ -36,6 +36,11 @@ class RedditGrepClone(object):
 	# That's no range...
 	_look_for_exact = False
 	
+	# Every time a log's date is parsed, its length is recorded, this
+	# is then used to calculate a rough average log length which is then
+	# used to approximate how many logs the resulting offsets include
+	_log_lengths = []
+	
 	class ArgumentError(Exception): pass
 	class ParseError(Exception): pass
 	
@@ -131,6 +136,7 @@ class RedditGrepClone(object):
 	def search(self):
 		'''
 			Finds the offsets of logs within the ranges defined in _searches.
+			Returns approximatly how many logs are in the the result sets.
 		'''
 		for start_dt, end_dt in self._searches:
 			start_offset = self._find_offset(start_dt, 0, self._CHASE_FIRST)
@@ -140,7 +146,10 @@ class RedditGrepClone(object):
 															self._CHASE_LAST)
 			self._offsets.append((start_offset, end_offset))
 		
-		return
+		avg_log_length = sum(self.log_lengths)
+		if avg_log_length < 1:
+		        avg_log_length = 1
+		return sum( (end_offset - start_offset) / avg_log_length for start_offset, end_offset in self._offsets)
 		
 	def __iter__(self):
 		'''
@@ -243,7 +252,9 @@ class RedditGrepClone(object):
 			reads += 1
 		
 		# Homogenize spacing
-		fixed_line = re.sub('\s+', ' ', self.file.readline(), 3)
+		line = self.file.readline()
+		self._log_lengths.append(len(line))
+		fixed_line = re.sub('\s+', ' ', line, 3)
 		try:
 			month, day, time, log = fixed_line.split(' ', 3)
 	
