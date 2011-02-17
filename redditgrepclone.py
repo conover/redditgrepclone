@@ -178,8 +178,8 @@ class RedditGrepClone(object):
                 if self._look_for_exact:
                     return
                 else:
-                    # Could be on wrong side of best guess timestamp after last 
-                    # jump
+                    # Could be on wrong side of best guess timestamp after  
+                    # last jump
                     if (mode == self._CHASE_FIRST and 
                                                 last_jump == FORWARD_JUMP):
                         self.file.readline()
