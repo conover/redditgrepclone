@@ -1,5 +1,37 @@
-Algorithm:
-- Compare specified timestamp with current line
-- If it's greated, seek back half bounding and re-compare
-- If it's lesser, seek forward half bounding and re-compare
-- If they match, scan foward to find first instance
+Reddit Grep Clone
+
+A utility to efficiently search a Reddit web server log file for a set of logs whose timestamps match a specific timestamp or range of timestamps.
+
+--Usage:
+The utility takes two arguments: log file path and timestamp pattern. The order the arguments are passed to utility is not important.
+
+The log file path argument is optional. If omitted, it will default to /logs/haproxy.log.
+
+The timestamp pattern must be one of the following formats:
+
+- Exact - Example: 15:30:01 
+This format tells the utility to find all the logs with a timestamp that matches this timestamp exactly.
+
+- Minute Range - Example: 15:30
+This format tells the utility to find all the logs with a timestamp that is within the range of timestamps between 15:30:00 and 15:30:50 inclusive.
+
+- General Range - Example: 15:30:01-18:10:29
+This format tells the utility to find all of the logs with a timestamp that is within the range of timestamps between 15:30:01 and 18:10:29 inclusive.
+
+If the second's place of the first or second argument in the general range search is omitted, it will be replace with 0 and 59 respectively. For instance:
+
+10:01-17:58:17 becomes 10:01:00-17:58:17
+10:01:30-17:58 becomes 10:01:30-17:58:59
+10:00-17:58 becomes 10:01:00-17:58:59
+
+--Special Cases:
+There are a few special situations beyond the simple exact-timestamp-matches-single-log. 
+
+- More than one log has the same timestamp
+- Some timestamp range inputs can match logs in the previous or next day
+- Some timestamp range inputs can match logs in the previous or next year
+- There may be no exact match for a specific start or end timestamp
+- Log timestamp parts may be delimited by more than one space
+
+--Complexity:
+The underlying binary search has a complexity of O(log n). Since the search has to be done twice to find the first and last offset, the complexity becomes O(2log n). The typical complexity is probably similar. It's difficult to say since the distribution of the log is not known.
