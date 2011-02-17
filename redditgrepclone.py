@@ -1,3 +1,25 @@
+#! /usr/bin/python
+# 
+# Copyright (c) 2011 Christopher Conover
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
 import os
 import os.path
 import sys
@@ -6,12 +28,13 @@ from datetime import datetime, timedelta
 
 class RedditGrepClone(object):
     '''
-        Print lines matching timestamp pattern.
+        A utility to efficiently search a Reddit web server log file for a set
+        of logs that match a specified timestamp or range of timestamps.  
     '''
     __version__ = 0.1
         
     # Key dates and times
-    _TODAY          = datetime(2011, 2, 11)
+    _TODAY          = datetime.today()
     _START_OF_TODAY = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 0, 0, 0)
     _END_OF_TODAY   = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 
                                                                 23, 59, 59)
@@ -256,13 +279,19 @@ class RedditGrepClone(object):
     
             log_dt = datetime.strptime(' '.join((month, day, time)), 
                                                             '%b %d %H:%M:%S')
-            if (self._first_log_dt is not None and log_dt.month == 1 and 
-                                                    self._first_log_dt == 12):
+            # Handle year rollovers
+            if (log_dt.month == 1 and self._TODAY.year == 12):
                 # Ex:
-                # _first_log_dt is Dec 31 23:50:00 
+                # TODAY is Dec 31 23:50:00 
                 # log_dt is Jan 1 00:01:01
-                # Happy New Year
+                # Happy New Years Day
                 return log_dt.replace(year = self._TODAY.year + 1)
+            elif (log_dt.month = 12 and self._TODAY.year == 1):
+                # Ex:
+                # logt_dt is Dec 31 23:50
+                # TODAY is Jan 1 00:00:01
+                # Happy New Years Eve
+                return log_dt.replace(year = self._TODAY.year - 1)
             else:
                 return log_dt.replace(year = self._TODAY.year)
         except Exception, e:
