@@ -2,8 +2,7 @@ import os
 import os.path
 import sys
 import re
-from datetime import datetime
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 class RedditGrepClone(object):
     '''
@@ -340,8 +339,5 @@ if __name__ == '__main__':
     
     tgrep = RedditGrepClone(*sys.argv[1:])
     tgrep.search()
-    count = 0
     for log in tgrep:
         print log.replace('\n', '')
-        count += 1
-    print count
