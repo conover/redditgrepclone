@@ -34,4 +34,4 @@ There are a few special situations beyond the simple exact-timestamp-matches-sin
 - Log timestamp parts may be delimited by more than one space
 
 --Complexity:
-The underlying binary search has a complexity of O(log n). Since the search has to be done twice to find the first and last offset, the complexity becomes O(2log n). The typical complexity is probably similar. It's difficult to say since the distribution of the log is not known.
+The underlying binary search has a complexity of O(log n). Since the search has to be done twice to find the first and last offset, the complexity becomes O(2log n). The typical complexity is similar. It's difficult to say more about the typical case since the distribution of the logs is not known.
