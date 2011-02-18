@@ -34,7 +34,9 @@ class RedditGrepClone(object):
     __version__ = 0.1
         
     # Key dates and times
-    _TODAY          = datetime(2011, 1, 1)
+    # _TODAY can be modified to control which day of the month is assigned
+    # to the input pattern
+    _TODAY          = datetime.today() 
     _START_OF_TODAY = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 0, 0, 0)
     _END_OF_TODAY   = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 
                                                                 23, 59, 59)
