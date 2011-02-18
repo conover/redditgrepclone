@@ -137,11 +137,11 @@ class RedditGrepClone(object):
             #
             # While the spec specified the overlap would only be a few 
             # minutes, best not to assume.
+            possible_searches.append((self._abs_start_dt - one_day, 
+                                                self._abs_end_dt - one_day))
             possible_searches.append((self._abs_start_dt, self._abs_end_dt))
             possible_searches.append((self._abs_start_dt + one_day, 
                                                 self._abs_end_dt + one_day))
-            possible_searches.append((self._abs_start_dt - one_day, 
-                                                self._abs_end_dt - one_day))
         
         # Filter out searches that can't match anything in this log file
         for search in possible_searches:
