@@ -34,7 +34,7 @@ class RedditGrepClone(object):
     __version__ = 0.1
         
     # Key dates and times
-    _TODAY          = datetime.today()
+    _TODAY          = datetime(2011, 1, 1)
     _START_OF_TODAY = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 0, 0, 0)
     _END_OF_TODAY   = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 
                                                                 23, 59, 59)
@@ -280,13 +280,13 @@ class RedditGrepClone(object):
             log_dt = datetime.strptime(' '.join((month, day, time)), 
                                                             '%b %d %H:%M:%S')
             # Handle year rollovers
-            if (log_dt.month == 1 and self._TODAY.year == 12):
+            if (log_dt.month == 1 and self._TODAY.month == 12):
                 # Ex:
                 # TODAY is Dec 31 23:50:00 
                 # log_dt is Jan 1 00:01:01
                 # Happy New Years Day
                 return log_dt.replace(year = self._TODAY.year + 1)
-            elif (log_dt.month = 12 and self._TODAY.year == 1):
+            elif (log_dt.month == 12 and self._TODAY.month == 1):
                 # Ex:
                 # logt_dt is Dec 31 23:50
                 # TODAY is Jan 1 00:00:01
