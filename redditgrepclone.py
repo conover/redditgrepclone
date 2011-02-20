@@ -72,8 +72,8 @@ class RedditGrepClone(object):
         
         filename = '/logs/haproxy.log' # default filename
         
-        if len(args) > 2:
-            raise self.ArgumentError, 'Expecting 1 or 2 arguements'
+        if len(args) > 2 or len(args) == 0:
+            raise self.ArgumentError, 'Expecting 1 or 2 arguments'
         else:
             if len(args) > 1:
                 try:
@@ -87,7 +87,7 @@ class RedditGrepClone(object):
                         filename = args[0]
                     except self.ArgumentError:
                         raise self.ArgumentError, \
-                '''Neither arguement specified is a valid timestamp pattern'''
+                '''Neither argument specified is a valid timestamp pattern'''
             else:
                 self._abs_start_dt, self._abs_end_dt = \
                                                 self._parse_pattern(args[0])
