@@ -256,7 +256,7 @@ class RedditGrepClone(object):
             
             Returns a datetime object of the current line log's timestamp.
         '''
-        start_offset, reads, line, seek_to = self._file.tell(), 0, [], None
+        start_offset, reads, seek_to = self._file.tell(), 0, None
         while True:
             seek_to = start_offset - reads
             self._file.seek(seek_to)
