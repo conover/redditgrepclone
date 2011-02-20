@@ -60,11 +60,13 @@ class RedditGrepClone(object):
     # That's no range...
     _look_for_exact = False
     
+    _file, _file_size = None, None
+    
     class ArgumentError(Exception): pass
     class ParseError(Exception): pass
     
     def __del__(self):
-        self.file.close()
+        self._file.close()
         
     def __init__(self, *args):
         
@@ -91,8 +93,8 @@ class RedditGrepClone(object):
                                                 self._parse_pattern(args[0])
                 
         assert isinstance(filename, basestring), 'Filename must be a string'
-        self.file = open(filename, 'rb')
-        self.file_size = os.path.getsize(filename) - 1
+        self._file = open(filename, 'rb')
+        self._file_size = os.path.getsize(filename) - 1
         
         self._findKeyLogs()
         self._defineSearches()
@@ -102,12 +104,12 @@ class RedditGrepClone(object):
             Find first and last log timestamps and offsets
         '''
         # Assume first log starts and offset 0
-        self.file.seek(0)
+        self._file.seek(0)
         self._first_log_dt = self._date_at_offset()
         
-        self.file.seek(self.file_size)
+        self._file.seek(self._file_size)
         self._last_log_dt = self._date_at_offset()
-        self._last_log_offset = self.file.tell()
+        self._last_log_offset = self._file.tell()
         
         return
         
@@ -179,9 +181,9 @@ class RedditGrepClone(object):
             offsets. 
         '''
         for start_offset, end_offset in self._offsets:
-            self.file.seek(start_offset)
-            while self.file.tell() <= end_offset + 1:
-                yield self.file.readline()
+            self._file.seek(start_offset)
+            while self._file.tell() <= end_offset + 1:
+                yield self._file.readline()
         
     def _find_offset(self, target_ts, lower_bound, mode):
         '''
@@ -192,7 +194,7 @@ class RedditGrepClone(object):
         
         prev_seek_offset    = -1
         last_jump           = None
-        upper_bound         = self.file_size
+        upper_bound         = self._file_size
         
         while True:
             seek_offset = ((upper_bound - lower_bound) / 2) + lower_bound
@@ -207,17 +209,17 @@ class RedditGrepClone(object):
                     # last jump
                     if (mode == self._CHASE_FIRST and 
                                                 last_jump == FORWARD_JUMP):
-                        self.file.readline()
+                        self._file.readline()
                     elif (mode == self._CHASE_LAST and 
-                            last_jump == BACK_JUMP and self.file.tell() > 0):
-                        self.file.seek(self.file.tell() - 1)
+                            last_jump == BACK_JUMP and self._file.tell() > 0):
+                        self._file.seek(self._file.tell() - 1)
                         self._date_at_offset()
-                    return self.file.tell()
+                    return self._file.tell()
             else:
                 prev_seek_offset = seek_offset
             
             # Move the midpoint and check the date  
-            self.file.seek(seek_offset)
+            self._file.seek(seek_offset)
             seek_ts = self._date_at_offset()
             if seek_ts > target_ts: # Passed it
                 upper_bound, last_jump = seek_offset, BACK_JUMP
@@ -226,26 +228,26 @@ class RedditGrepClone(object):
             else:
                 # Make sure this is the first or last log in a list of 
                 # potentially many logs with the same timestamp
-                if self.file.tell() == 0:
+                if self._file.tell() == 0:
                     return 0
                 elif mode == self._CHASE_FIRST:
-                    self.file.seek(self.file.tell() - 1)
+                    self._file.seek(self._file.tell() - 1)
                     prev_ts = self._date_at_offset()
                     if prev_ts == target_ts:
                         upper_bound = seek_offset
                     else:
-                        self.file.seek(seek_offset)
+                        self._file.seek(seek_offset)
                         self._date_at_offset()
-                        return self.file.tell()
+                        return self._file.tell()
                 elif mode == self._CHASE_LAST:
-                    self.file.readline()
+                    self._file.readline()
                     next_ts = self._date_at_offset()
                     if next_ts == target_ts:
                         lower_bound = seek_offset
                     else:
-                        self.file.seek(seek_offset)
+                        self._file.seek(seek_offset)
                         self._date_at_offset()
-                        return self.file.tell()
+                        return self._file.tell()
                         
     def _date_at_offset(self):
         '''
@@ -254,30 +256,30 @@ class RedditGrepClone(object):
             
             Returns a datetime object of the current line log's timestamp.
         '''
-        start_offset, reads, line, seek_to = self.file.tell(), 0, [], None
+        start_offset, reads, line, seek_to = self._file.tell(), 0, [], None
         while True:
             seek_to = start_offset - reads
-            self.file.seek(seek_to)
+            self._file.seek(seek_to)
             if seek_to == 0: break # Beginning of file
-            char = self.file.read(1)
+            char = self._file.read(1)
             # Could have landed directly on the new line. Avoid new lines at
             # the end of the file
             if (char == '\n' and reads > 0 and 
-                                    seek_to != self.file_size):
+                                    seek_to != self._file_size):
                 break
             reads += 1
         
         # Homogenize spacing
-        fixed_line = re.sub('\s+', ' ', self.file.readline(), 3)
+        fixed_line = re.sub('\s+', ' ', self._file.readline(), 3)
         try:
             month, day, time, log = fixed_line.split(' ', 3)
     
             # readline() moved the cursor to end of the line, move it back
             # to the beginning
             if seek_to > 0:
-                self.file.seek(seek_to + 1)
+                self._file.seek(seek_to + 1)
             else:
-                self.file.seek(0)
+                self._file.seek(0)
     
             log_dt = datetime.strptime(' '.join((month, day, time)), 
                                                             '%b %d %H:%M:%S')
