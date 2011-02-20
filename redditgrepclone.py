@@ -368,7 +368,11 @@ class RedditGrepClone(object):
         
 if __name__ == '__main__':
     
-    tgrep = RedditGrepClone(*sys.argv[1:])
-    tgrep.search()
-    for log in tgrep:
-        print log.replace('\n', '')
+    if len(sys.argv) == 1:
+        print 'You must provide at least a timestamp pattern.'
+        print 'See README for details.'
+    else:
+        tgrep = RedditGrepClone(*sys.argv[1:])
+        tgrep.search()
+        for log in tgrep:
+            print log.replace('\n', '')
