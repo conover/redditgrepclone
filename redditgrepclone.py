@@ -315,15 +315,15 @@ class RedditGrepClone(object):
         start_dt, end_dt = None, None
         
         # Any possible arguement must match this regular expression
-        valid_ts = re.compile('''   [0-9]{1,2}:[0-9]{1,2}
-                                    ([0-9]{1,2})?
-                                    (-[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?)?'''
+        valid_ts = re.compile('''   ^[0-9]{1,2}:[0-9]{1,2}
+                                    (:[0-9]{1,2})?
+                                    (-[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?)?$'''
                             , re.X)
         if valid_ts.match(pattern) is None:
             raise self.ArgumentError, 'Invalid timestamp pattern format'
     
         # Any timestamp matching this regular expresssion is not a wildcard
-        precise_ts = re.compile('[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}')
+        precise_ts = re.compile('^[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}$')
         
         # Ignore midnight and new year rollovers here. Those cases will be 
         # taken care of by looking at the first and last log timestamps later
