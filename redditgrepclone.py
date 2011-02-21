@@ -74,8 +74,7 @@ class RedditGrepClone(object):
         
         if len(args) > 2 or len(args) == 0:
             raise self.ArgumentError, 'Expecting 1 or 2 arguments'
-        else:
-            if len(args) > 1:
+        elif len(args) > 1:
                 try:
                     self._abs_start_dt, self._abs_end_dt = \
                                                 self._parse_pattern(args[0])
@@ -88,9 +87,9 @@ class RedditGrepClone(object):
                     except self.ArgumentError:
                         raise self.ArgumentError, \
                 '''Neither argument specified is a valid timestamp pattern'''
-            else:
+        else:
                 self._abs_start_dt, self._abs_end_dt = \
-                                                self._parse_pattern(args[0])
+                                        self._parse_pattern(args[0])
                 
         assert isinstance(filename, basestring), 'Filename must be a string'
         self._file = open(filename, 'rb')
