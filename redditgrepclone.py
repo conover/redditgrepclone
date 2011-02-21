@@ -27,10 +27,10 @@ import re
 from datetime import datetime, timedelta
 
 class RedditGrepClone(object):
-    '''
+    """
         A utility to efficiently search a Reddit web server log file for a set
         of logs that match a specified timestamp or range of timestamps.  
-    '''
+    """
     __version__ = 0.1
         
     # Key dates and times
@@ -100,9 +100,9 @@ class RedditGrepClone(object):
         self._defineSearches()
         
     def _findKeyLogs(self):
-        '''
+        """
             Find first and last log timestamps and offsets
-        '''
+        """
         # Assume first log starts and offset 0
         self._file.seek(0)
         self._first_log_dt = self._date_at_offset()
@@ -114,10 +114,10 @@ class RedditGrepClone(object):
         return
         
     def _defineSearches(self):
-        '''
+        """
             Define a set of searches to be performed. Takes into account
             midnight rollovers.
-        '''
+        """
         possible_searches = []
         one_day = timedelta(days = 1)
         if self._abs_start_dt > self._abs_end_dt:
@@ -155,10 +155,10 @@ class RedditGrepClone(object):
         return
         
     def search(self):
-        '''
+        """
             Finds the offsets of logs within the ranges defined in _searches.
             Returns approximatly how many logs are in the the result sets.
-        '''
+        """
         for start_dt, end_dt in self._searches:
             start_offset = self._find_offset(start_dt, 0, self._CHASE_FIRST)
             if start_offset is None and self._look_for_exact:
@@ -170,26 +170,26 @@ class RedditGrepClone(object):
         return
         
     def __iter__(self):
-        '''
+        """
             Returns self.next() to facilitate iteration
-        '''
+        """
         return self.next()
         
     def next(self):
-        '''
+        """
             Use a generator to iterate over all the logs between each set of
             offsets. 
-        '''
+        """
         for start_offset, end_offset in self._offsets:
             self._file.seek(start_offset)
             while self._file.tell() <= end_offset + 1:
                 yield self._file.readline()
         
     def _find_offset(self, target_ts, lower_bound, mode):
-        '''
+        """
             Binary search to find the offset of the log with closest possible
             timestamp to the target timestamp.
-        '''
+        """
         FORWARD_JUMP,BACK_JUMP = 0, 1
         
         prev_seek_offset    = -1
@@ -250,12 +250,12 @@ class RedditGrepClone(object):
                         return self._file.tell()
                         
     def _date_at_offset(self):
-        '''
+        """
             Backtrack to find the beginning of the current line and parse
             timestamp. File cursor will be moved to the beginning of the line.
             
             Returns a datetime object of the current line log's timestamp.
-        '''
+        """
         start_offset, reads, seek_to = self._file.tell(), 0, None
         while True:
             seek_to = start_offset - reads
@@ -306,10 +306,10 @@ class RedditGrepClone(object):
                                             (str(seek_to), e, fixed_line)
             
     def _parse_pattern(self, pattern):
-        '''
+        """
             Parses and validates input pattern.
             @return start and end as datetimes
-        '''
+        """
         assert isinstance(pattern,basestring), \
                                         'Timestamp pattern must be a string'
         
