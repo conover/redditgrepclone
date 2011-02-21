@@ -66,7 +66,7 @@ class RedditGrepClone(object):
     class ParseError(Exception): pass
     
     def __del__(self):
-        if self.file is not None:
+        if self._file is not None:
             self._file.close()
         
     def __init__(self, *args):
